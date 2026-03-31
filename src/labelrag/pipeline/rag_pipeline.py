@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from labelgen import Paragraph
+from labelgen import LabelGenerationResult, LabelGenerator, Paragraph
 
 from labelrag.config import RAGPipelineConfig
 from labelrag.generation.generator import AnswerGenerator
+from labelrag.indexing.corpus_index import CorpusIndex, build_corpus_index
 from labelrag.types import RAGAnswerResult, RetrievalResult
 
 
@@ -21,11 +22,29 @@ class RAGPipeline:
     ) -> None:
         self.config = config or RAGPipelineConfig()
         self.generator = generator
+        self._label_generator = LabelGenerator(self.config.labelgen)
+        self._fit_result: LabelGenerationResult | None = None
+        self._corpus_index: CorpusIndex | None = None
+
+    @property
+    def fit_result(self) -> LabelGenerationResult | None:
+        """Return the most recent fit result when available."""
+
+        return self._fit_result
+
+    @property
+    def corpus_index(self) -> CorpusIndex | None:
+        """Return the paragraph-side corpus index when available."""
+
+        return self._corpus_index
 
     def fit(self, paragraphs: list[str] | list[Paragraph]) -> RAGPipeline:
         """Fit the pipeline on a paragraph corpus."""
 
-        raise NotImplementedError("RAGPipeline.fit() is not implemented yet.")
+        result = self._label_generator.fit_transform(paragraphs)
+        self._fit_result = result
+        self._corpus_index = build_corpus_index(result)
+        return self
 
     def build_context(self, question: str) -> RetrievalResult:
         """Build retrieval context for a question."""
