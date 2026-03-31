@@ -50,7 +50,7 @@ class OpenAICompatibleAnswerGenerator:
             payload["max_tokens"] = self.config.max_tokens
 
         response = self._post_json(
-            url=f"{self.config.base_url.rstrip('/')}/chat/completions",
+            url=_chat_completions_url(self.config.base_url),
             payload=payload,
         )
         return GeneratedAnswer(
@@ -182,3 +182,12 @@ def _format_http_error(exc: error.HTTPError) -> str:
         body = ""
     detail = f": {body}" if body else ""
     return f"Provider request failed with HTTP {exc.code}{detail}"
+
+
+def _chat_completions_url(base_url: str) -> str:
+    """Normalize a base URL or full chat-completions endpoint into a request URL."""
+
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        return normalized
+    return f"{normalized}/chat/completions"

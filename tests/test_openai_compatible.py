@@ -71,6 +71,23 @@ def test_openai_compatible_generator_builds_text_answer() -> None:
     assert result.metadata["usage"]["total_tokens"] == 14
 
 
+def test_openai_compatible_generator_accepts_full_endpoint_url() -> None:
+    """A full chat-completions endpoint URL should be used as-is."""
+
+    generator = StubOpenAICompatibleAnswerGenerator(
+        OpenAICompatibleConfig(
+            model="test-model",
+            api_key="secret",
+            base_url="https://example.com/v1/chat/completions",
+        ),
+        response={"choices": [{"message": {"content": "Answer text."}}]},
+    )
+
+    result = generator.generate("What happened?", "Context here.")
+
+    assert result.text == "Answer text."
+
+
 def test_openai_compatible_generator_supports_content_part_lists() -> None:
     """The generator should join text parts from compatible structured responses."""
 
