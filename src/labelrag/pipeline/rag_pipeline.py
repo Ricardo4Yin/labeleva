@@ -7,7 +7,7 @@ from pathlib import Path
 from labelgen import LabelGenerationResult, LabelGenerator, Paragraph
 
 from labelrag.config import RAGPipelineConfig
-from labelrag.generation.generator import AnswerGenerator
+from labelrag.generation.generator import AnswerGenerator, GeneratedAnswer
 from labelrag.generation.prompt_builder import build_prompt_context
 from labelrag.indexing.corpus_index import CorpusIndex, build_corpus_index
 from labelrag.io.serialize import (
@@ -134,7 +134,7 @@ class RAGPipeline:
     def answer(self, question: str) -> RAGAnswerResult:
         """Answer a question using retrieval and an optional generator."""
 
-        raise NotImplementedError("RAGPipeline.answer() is not implemented yet.")
+        return self._answer_with_optional_generator(question, self.generator)
 
     def answer_with_generator(
         self,
@@ -143,9 +143,7 @@ class RAGPipeline:
     ) -> RAGAnswerResult:
         """Answer a question with a per-call generator override."""
 
-        raise NotImplementedError(
-            "RAGPipeline.answer_with_generator() is not implemented yet."
-        )
+        return self._answer_with_optional_generator(question, generator)
 
     def save(self, path: str | Path) -> None:
         """Persist the pipeline state to disk."""
@@ -182,3 +180,60 @@ class RAGPipeline:
 
         if self._corpus_index is None:
             raise RuntimeError("RAGPipeline requires fit() before query-time operations.")
+
+    def _answer_with_optional_generator(
+        self,
+        question: str,
+        generator: AnswerGenerator | None,
+    ) -> RAGAnswerResult:
+        """Build an answer result with an optional injected generator."""
+
+        retrieval_result = self.build_context(question)
+        generated_answer = self._generate_answer(
+            question,
+            retrieval_result.prompt_context,
+            generator,
+        )
+
+        return RAGAnswerResult(
+            question=question,
+            answer_text=generated_answer.text,
+            query_analysis=retrieval_result.query_analysis,
+            retrieved_paragraphs=retrieval_result.retrieved_paragraphs,
+            prompt_context=retrieval_result.prompt_context,
+            metadata={
+                **retrieval_result.metadata,
+                "generator_name": _generator_name(generator),
+                "generation_model": _generation_model(generated_answer),
+                "generation_metadata": dict(generated_answer.metadata),
+            },
+        )
+
+    def _generate_answer(
+        self,
+        question: str,
+        context: str,
+        generator: AnswerGenerator | None,
+    ) -> GeneratedAnswer:
+        """Generate an answer or return an empty placeholder when no generator is configured."""
+
+        if generator is None:
+            return GeneratedAnswer(text="", metadata={})
+        return generator.generate(question, context)
+
+
+def _generator_name(generator: AnswerGenerator | None) -> str:
+    """Return a stable generator identifier for metadata."""
+
+    if generator is None:
+        return ""
+    return type(generator).__name__
+
+
+def _generation_model(answer: GeneratedAnswer) -> str:
+    """Return a best-effort generation model name from generator metadata."""
+
+    model = answer.metadata.get("model")
+    if not isinstance(model, str):
+        return ""
+    return model
