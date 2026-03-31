@@ -9,7 +9,7 @@ from labelgen import LabelGenerationResult, LabelGenerator, Paragraph
 from labelrag.config import RAGPipelineConfig
 from labelrag.generation.generator import AnswerGenerator
 from labelrag.indexing.corpus_index import CorpusIndex, build_corpus_index
-from labelrag.types import RAGAnswerResult, RetrievalResult
+from labelrag.types import QueryAnalysis, RAGAnswerResult, RetrievalResult
 
 
 class RAGPipeline:
@@ -46,6 +46,35 @@ class RAGPipeline:
         self._corpus_index = build_corpus_index(result)
         return self
 
+    def analyze_query(self, question: str) -> QueryAnalysis:
+        """Analyze a query against the fitted label space."""
+
+        self._require_fitted()
+
+        result = self._label_generator.transform([question])
+        concept_ids = sorted({mention.concept_id for mention in result.mentions})
+        concepts_by_id = {concept.id: concept.normalized for concept in result.concepts}
+        label_display_names_by_id = {
+            community.id: community.display_name for community in result.communities
+        }
+        label_ids = list(result.paragraph_labels[0].label_ids) if result.paragraph_labels else []
+
+        return QueryAnalysis(
+            query_text=question,
+            concepts=[
+                concepts_by_id[concept_id]
+                for concept_id in concept_ids
+                if concept_id in concepts_by_id
+            ],
+            concept_ids=concept_ids,
+            label_ids=label_ids,
+            label_display_names=[
+                label_display_names_by_id[label_id]
+                for label_id in label_ids
+                if label_id in label_display_names_by_id
+            ],
+        )
+
     def build_context(self, question: str) -> RetrievalResult:
         """Build retrieval context for a question."""
 
@@ -77,3 +106,9 @@ class RAGPipeline:
         """Load a pipeline from disk."""
 
         raise NotImplementedError("RAGPipeline.load() is not implemented yet.")
+
+    def _require_fitted(self) -> None:
+        """Validate that the pipeline has already been fitted."""
+
+        if self._fit_result is None or self._corpus_index is None:
+            raise RuntimeError("RAGPipeline requires fit() before query-time operations.")
