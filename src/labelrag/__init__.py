@@ -4,6 +4,10 @@ from labelgen import Paragraph
 
 from labelrag.config import PromptConfig, RAGPipelineConfig, RetrievalConfig
 from labelrag.generation.generator import AnswerGenerator, GeneratedAnswer
+from labelrag.generation.openai_compatible import (
+    OpenAICompatibleAnswerGenerator,
+    OpenAICompatibleConfig,
+)
 from labelrag.pipeline.rag_pipeline import RAGPipeline
 from labelrag.types import (
     IndexedParagraph,
@@ -17,6 +21,8 @@ __all__ = [
     "AnswerGenerator",
     "GeneratedAnswer",
     "IndexedParagraph",
+    "OpenAICompatibleAnswerGenerator",
+    "OpenAICompatibleConfig",
     "Paragraph",
     "PromptConfig",
     "QueryAnalysis",
@@ -27,4 +33,3 @@ __all__ = [
     "RetrievalResult",
     "RetrievedParagraph",
 ]
-
