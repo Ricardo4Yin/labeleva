@@ -8,6 +8,7 @@ from labelgen import LabelGenerationResult, LabelGenerator, Paragraph
 
 from labelrag.config import RAGPipelineConfig
 from labelrag.generation.generator import AnswerGenerator
+from labelrag.generation.prompt_builder import build_prompt_context
 from labelrag.indexing.corpus_index import CorpusIndex, build_corpus_index
 from labelrag.retrieval.selector import select_greedy_paragraphs
 from labelrag.types import (
@@ -96,7 +97,31 @@ class RAGPipeline:
     def build_context(self, question: str) -> RetrievalResult:
         """Build retrieval context for a question."""
 
-        raise NotImplementedError("RAGPipeline.build_context() is not implemented yet.")
+        query_analysis = self.analyze_query(question)
+        retrieved_paragraphs = self._retrieve_paragraphs(query_analysis)
+        prompt_context = build_prompt_context(retrieved_paragraphs, self.config.prompt)
+        covered_label_ids = sorted(
+            {
+                label_id
+                for paragraph in retrieved_paragraphs
+                for label_id in paragraph.matched_label_ids
+            }
+        )
+        uncovered_label_ids = sorted(set(query_analysis.label_ids) - set(covered_label_ids))
+
+        return RetrievalResult(
+            question=question,
+            query_analysis=query_analysis,
+            retrieved_paragraphs=retrieved_paragraphs,
+            prompt_context=prompt_context,
+            metadata={
+                "covered_label_ids": covered_label_ids,
+                "uncovered_label_ids": uncovered_label_ids,
+                "retrieval_strategy": "greedy_label_coverage",
+                "query_label_ids": list(query_analysis.label_ids),
+                "retrieval_limit": self.config.retrieval.max_paragraphs,
+            },
+        )
 
     def answer(self, question: str) -> RAGAnswerResult:
         """Answer a question using retrieval and an optional generator."""
