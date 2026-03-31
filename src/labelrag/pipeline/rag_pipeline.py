@@ -9,7 +9,13 @@ from labelgen import LabelGenerationResult, LabelGenerator, Paragraph
 from labelrag.config import RAGPipelineConfig
 from labelrag.generation.generator import AnswerGenerator
 from labelrag.indexing.corpus_index import CorpusIndex, build_corpus_index
-from labelrag.types import QueryAnalysis, RAGAnswerResult, RetrievalResult
+from labelrag.retrieval.selector import select_greedy_paragraphs
+from labelrag.types import (
+    QueryAnalysis,
+    RAGAnswerResult,
+    RetrievalResult,
+    RetrievedParagraph,
+)
 
 
 class RAGPipeline:
@@ -73,6 +79,18 @@ class RAGPipeline:
                 for label_id in label_ids
                 if label_id in label_display_names_by_id
             ],
+        )
+
+    def _retrieve_paragraphs(self, query_analysis: QueryAnalysis) -> list[RetrievedParagraph]:
+        """Retrieve paragraphs for a analyzed query using greedy label coverage."""
+
+        self._require_fitted()
+        assert self._corpus_index is not None
+
+        return select_greedy_paragraphs(
+            query_analysis,
+            self._corpus_index,
+            max_paragraphs=self.config.retrieval.max_paragraphs,
         )
 
     def build_context(self, question: str) -> RetrievalResult:
