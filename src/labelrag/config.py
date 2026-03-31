@@ -1,0 +1,33 @@
+"""Public configuration models for `labelrag`."""
+
+from dataclasses import dataclass, field
+
+from labelgen import LabelGeneratorConfig
+
+
+@dataclass(slots=True)
+class RetrievalConfig:
+    """Configuration for paragraph retrieval behavior."""
+
+    max_paragraphs: int = 8
+    require_full_label_coverage: bool = False
+    allow_label_free_fallback: bool = True
+
+
+@dataclass(slots=True)
+class PromptConfig:
+    """Configuration for prompt context rendering."""
+
+    include_paragraph_ids: bool = True
+    include_label_annotations: bool = False
+    max_context_characters: int | None = None
+
+
+@dataclass(slots=True)
+class RAGPipelineConfig:
+    """Top-level public configuration for `RAGPipeline`."""
+
+    labelgen: LabelGeneratorConfig = field(default_factory=LabelGeneratorConfig)
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    prompt: PromptConfig = field(default_factory=PromptConfig)
+
