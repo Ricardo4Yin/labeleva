@@ -26,10 +26,17 @@ def main() -> None:
 
     model = os.environ.get("LABELRAG_LLM_MODEL", "")
     if not model:
-        raise RuntimeError("Set LABELRAG_LLM_MODEL before running the provider example.")
+        print("Skipping provider example: set LABELRAG_LLM_MODEL to run a real request.")
+        return
 
     base_url = os.environ.get("LABELRAG_LLM_BASE_URL", "https://api.openai.com/v1")
     api_key_env_var = os.environ.get("LABELRAG_LLM_API_KEY_ENV_VAR", "OPENAI_API_KEY")
+    if not os.environ.get(api_key_env_var):
+        print(
+            "Skipping provider example: "
+            f"set `{api_key_env_var}` before running a real provider request."
+        )
+        return
 
     config = RAGPipelineConfig()
     config.labelgen.extractor_mode = "heuristic"

@@ -9,8 +9,8 @@ def main() -> None:
     config = RAGPipelineConfig()
     config.labelgen.extractor_mode = "heuristic"
     config.labelgen.use_graph_community_detection = False
-    config.retrieval.max_paragraphs = 2
-    config.retrieval.require_full_label_coverage = True
+    config.retrieval.max_paragraphs = 1
+    config.retrieval.allow_label_free_fallback = False
     config.prompt.include_label_annotations = True
 
     paragraphs = [
@@ -22,15 +22,16 @@ def main() -> None:
     pipeline = RAGPipeline(config)
     pipeline.fit(paragraphs)
 
-    complete = pipeline.build_context("How do developers use language models?")
-    missing = pipeline.build_context("How do developers use language models and monitoring?")
+    labeled = pipeline.build_context("Developers use language models in production systems.")
+    label_free = pipeline.build_context("Quantum batteries improve starship reactors.")
 
-    print("Complete query:")
-    print(f"- prompt_context_present={bool(complete.prompt_context)}")
-    print(f"- metadata={complete.metadata}")
-    print("\nPartially coverable query with require_full_label_coverage=True:")
-    print(f"- prompt_context_present={bool(missing.prompt_context)}")
-    print(f"- metadata={missing.metadata}")
+    print("Labeled query with prompt label annotations:")
+    print(labeled.prompt_context)
+    print(f"- metadata={labeled.metadata}")
+
+    print("\nLabel-free query with fallback disabled:")
+    print(f"- prompt_context_present={bool(label_free.prompt_context)}")
+    print(f"- metadata={label_free.metadata}")
 
 
 if __name__ == "__main__":

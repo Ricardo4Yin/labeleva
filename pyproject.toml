@@ -75,7 +75,7 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "examples"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 # `paralabelgen` does not currently ship type stubs, so this remains an
