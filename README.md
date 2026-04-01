@@ -128,6 +128,15 @@ The main public entrypoints are:
 
 Detailed API notes are available in [`docs/public_api.md`](docs/public_api.md).
 
+## Examples
+
+Runnable examples are available in [`examples/`](examples/):
+
+- [`examples/basic_usage.py`](examples/basic_usage.py)
+- [`examples/custom_config.py`](examples/custom_config.py)
+- [`examples/save_and_load.py`](examples/save_and_load.py)
+- [`examples/provider_answer.py`](examples/provider_answer.py)
+
 ## Persistence Notes
 
 `save(path)` produces a human-inspectable directory containing:
