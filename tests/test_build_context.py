@@ -37,6 +37,11 @@ def test_build_context_returns_prompt_and_metadata() -> None:
     assert result.metadata["retrieval_limit"] == pipeline.config.retrieval.max_paragraphs
     assert result.metadata["used_label_free_fallback"] is False
     assert result.metadata["full_label_coverage_met"] is True
+    assert result.metadata["attempted_covered_label_ids"] == result.metadata["covered_label_ids"]
+    assert (
+        result.metadata["attempted_uncovered_label_ids"]
+        == result.metadata["uncovered_label_ids"]
+    )
     assert "covered_label_ids" in result.metadata
     assert "uncovered_label_ids" in result.metadata
     assert result.prompt_context
@@ -81,6 +86,8 @@ def test_build_context_returns_empty_retrieval_for_label_free_query() -> None:
     assert result.metadata["retrieval_strategy"] == "concept_overlap_fallback"
     assert result.metadata["covered_label_ids"] == []
     assert result.metadata["uncovered_label_ids"] == []
+    assert result.metadata["attempted_covered_label_ids"] == []
+    assert result.metadata["attempted_uncovered_label_ids"] == []
 
 
 def test_build_context_can_disable_label_free_fallback() -> None:
@@ -102,6 +109,8 @@ def test_build_context_can_disable_label_free_fallback() -> None:
     assert result.prompt_context == ""
     assert result.metadata["used_label_free_fallback"] is False
     assert result.metadata["retrieval_strategy"] == "greedy_label_coverage"
+    assert result.metadata["attempted_covered_label_ids"] == []
+    assert result.metadata["attempted_uncovered_label_ids"] == []
 
 
 def test_build_context_can_require_full_label_coverage() -> None:
@@ -151,3 +160,7 @@ def test_build_context_can_require_full_label_coverage() -> None:
     assert result.prompt_context == ""
     assert result.metadata["require_full_label_coverage"] is True
     assert result.metadata["full_label_coverage_met"] is False
+    assert result.metadata["covered_label_ids"] == []
+    assert result.metadata["uncovered_label_ids"] == ["l1", "l2"]
+    assert result.metadata["attempted_covered_label_ids"] == ["l1"]
+    assert result.metadata["attempted_uncovered_label_ids"] == ["l2"]

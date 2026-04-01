@@ -119,18 +119,20 @@ class RAGPipeline:
 
         query_analysis = self.analyze_query(question)
         retrieved_paragraphs = self._retrieve_paragraphs(query_analysis)
-        covered_label_ids = sorted(
+        attempted_covered_label_ids = sorted(
             {
                 label_id
                 for paragraph in retrieved_paragraphs
                 for label_id in paragraph.matched_label_ids
             }
         )
-        uncovered_label_ids = sorted(set(query_analysis.label_ids) - set(covered_label_ids))
+        attempted_uncovered_label_ids = sorted(
+            set(query_analysis.label_ids) - set(attempted_covered_label_ids)
+        )
         used_label_free_fallback = (
             not query_analysis.label_ids and self.config.retrieval.allow_label_free_fallback
         )
-        full_label_coverage_met = not uncovered_label_ids
+        full_label_coverage_met = not attempted_uncovered_label_ids
         retrieval_strategy = (
             "concept_overlap_fallback"
             if used_label_free_fallback
@@ -141,6 +143,14 @@ class RAGPipeline:
             retrieved_paragraphs = []
 
         prompt_context = build_prompt_context(retrieved_paragraphs, self.config.prompt)
+        covered_label_ids = sorted(
+            {
+                label_id
+                for paragraph in retrieved_paragraphs
+                for label_id in paragraph.matched_label_ids
+            }
+        )
+        uncovered_label_ids = sorted(set(query_analysis.label_ids) - set(covered_label_ids))
 
         return RetrievalResult(
             question=question,
@@ -150,6 +160,8 @@ class RAGPipeline:
             metadata={
                 "covered_label_ids": covered_label_ids,
                 "uncovered_label_ids": uncovered_label_ids,
+                "attempted_covered_label_ids": attempted_covered_label_ids,
+                "attempted_uncovered_label_ids": attempted_uncovered_label_ids,
                 "retrieval_strategy": retrieval_strategy,
                 "query_label_ids": list(query_analysis.label_ids),
                 "retrieval_limit": self.config.retrieval.max_paragraphs,
