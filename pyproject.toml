@@ -46,6 +46,14 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/labelrag"]
 
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "/src/labelrag",
+  "/README.md",
+  "/LICENSE",
+  "/pyproject.toml",
+]
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
