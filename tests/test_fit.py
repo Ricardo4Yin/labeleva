@@ -1,8 +1,18 @@
 """Tests for corpus fitting and index construction."""
 
+from typing import TypedDict
+
 from labelgen import Paragraph
 
 from labelrag import RAGPipeline, RAGPipelineConfig
+
+
+class SerializedParagraphPayload(TypedDict):
+    """Serialized paragraph payload reconstructed by callers before fit."""
+
+    id: str
+    text: str
+    metadata: dict[str, str]
 
 
 def test_fit_returns_pipeline_for_string_inputs() -> None:
@@ -49,6 +59,34 @@ def test_fit_accepts_paragraph_objects_and_preserves_metadata() -> None:
     assert (
         pipeline.corpus_index.paragraphs_by_id["doc-1#p0"].metadata
         == {"doc_id": "doc-1", "title": "Doc One"}
+    )
+
+
+def test_fit_accepts_reconstructed_serialized_paragraph_payloads() -> None:
+    """Fitting should accept Paragraph objects reconstructed from serialized payloads."""
+
+    pipeline = RAGPipeline(RAGPipelineConfig())
+    serialized_payloads: list[SerializedParagraphPayload] = [
+        {
+            "id": "",
+            "text": "OpenAI builds language models for developers.",
+            "metadata": {"doc_id": "doc-2", "title": "Serialized Doc"},
+        },
+        {
+            "id": "",
+            "text": "Developers use language models in production systems.",
+            "metadata": {"doc_id": "doc-2", "title": "Serialized Doc"},
+        },
+    ]
+    reconstructed_paragraphs = [Paragraph(**payload) for payload in serialized_payloads]
+
+    pipeline.fit(reconstructed_paragraphs)
+
+    assert pipeline.corpus_index is not None
+    assert "doc-2#p0" in pipeline.corpus_index.paragraphs_by_id
+    assert (
+        pipeline.corpus_index.paragraphs_by_id["doc-2#p0"].metadata
+        == {"doc_id": "doc-2", "title": "Serialized Doc"}
     )
 
 
