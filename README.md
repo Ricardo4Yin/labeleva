@@ -163,3 +163,10 @@ Public guarantee:
 .venv/bin/pyright
 .venv/bin/pytest
 ```
+
+## Release Checks
+
+```bash
+.venv/bin/python -m build
+.venv/bin/python -m twine check dist/*
+```
