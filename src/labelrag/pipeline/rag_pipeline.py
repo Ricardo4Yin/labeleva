@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from labelgen import LabelGenerationResult, LabelGenerator, Paragraph, dump_result, load_result
 
@@ -11,12 +12,21 @@ from labelrag.generation.generator import AnswerGenerator, GeneratedAnswer
 from labelrag.generation.prompt_builder import build_prompt_context
 from labelrag.indexing.corpus_index import CorpusIndex, build_corpus_index
 from labelrag.io.serialize import (
+    backup_other_persistence_format,
+    cleanup_persistence_backups,
     corpus_index_from_dict,
     corpus_index_to_dict,
     dump_json,
+    ensure_persistence_artifacts_exist,
     load_json,
+    load_with_optional_gzip,
+    persistence_path,
     pipeline_config_from_dict,
     pipeline_config_to_dict,
+    remove_other_persistence_format,
+    resolve_persistence_format,
+    restore_persistence_backups,
+    save_with_optional_gzip,
 )
 from labelrag.retrieval.selector import (
     select_concept_overlap_fallback,
@@ -185,30 +195,78 @@ class RAGPipeline:
 
         return self._answer_with_optional_generator(question, generator)
 
-    def save(self, path: str | Path) -> None:
+    def save(
+        self,
+        path: str | Path,
+        format: Literal["json", "json.gz"] | None = None,
+    ) -> None:
         """Persist the pipeline state to disk."""
 
         self._require_fitted()
         assert self._corpus_index is not None
         assert self._fit_result is not None
+        fit_result = self._fit_result
 
         destination = Path(path)
         destination.mkdir(parents=True, exist_ok=True)
-        dump_json(pipeline_config_to_dict(self.config), destination / "config.json")
-        self._label_generator.save(destination / "label_generator.json")
-        dump_result(self._fit_result, destination / "fit_result.json")
-        dump_json(corpus_index_to_dict(self._corpus_index), destination / "corpus_index.json")
+        persistence_format = resolve_persistence_format(destination, format)
+        artifact_paths = [
+            persistence_path(destination, stem, persistence_format)
+            for stem in ("config", "label_generator", "fit_result", "corpus_index")
+        ]
+        backups = backup_other_persistence_format(destination, persistence_format)
+        try:
+            dump_json(
+                pipeline_config_to_dict(self.config),
+                artifact_paths[0],
+            )
+            save_with_optional_gzip(
+                artifact_paths[1],
+                self._label_generator.save,
+            )
+            save_with_optional_gzip(
+                artifact_paths[2],
+                lambda artifact_path: dump_result(fit_result, artifact_path),
+            )
+            dump_json(
+                corpus_index_to_dict(self._corpus_index),
+                artifact_paths[3],
+            )
+        except Exception:
+            for artifact_path in artifact_paths:
+                artifact_path.unlink(missing_ok=True)
+            restore_persistence_backups(backups)
+            raise
+
+        cleanup_persistence_backups(backups)
+        remove_other_persistence_format(destination, persistence_format)
 
     @classmethod
-    def load(cls, path: str | Path) -> RAGPipeline:
+    def load(
+        cls,
+        path: str | Path,
+        format: Literal["json", "json.gz"] | None = None,
+    ) -> RAGPipeline:
         """Load a pipeline from disk."""
 
         source = Path(path)
-        config = pipeline_config_from_dict(load_json(source / "config.json"))
+        persistence_format = resolve_persistence_format(source, format)
+        ensure_persistence_artifacts_exist(source, persistence_format)
+        config = pipeline_config_from_dict(
+            load_json(persistence_path(source, "config", persistence_format))
+        )
         pipeline = cls(config=config)
-        pipeline._label_generator = LabelGenerator.load(source / "label_generator.json")
-        pipeline._fit_result = load_result(source / "fit_result.json")
-        pipeline._corpus_index = corpus_index_from_dict(load_json(source / "corpus_index.json"))
+        pipeline._label_generator = load_with_optional_gzip(
+            persistence_path(source, "label_generator", persistence_format),
+            LabelGenerator.load,
+        )
+        pipeline._fit_result = load_with_optional_gzip(
+            persistence_path(source, "fit_result", persistence_format),
+            load_result,
+        )
+        pipeline._corpus_index = corpus_index_from_dict(
+            load_json(persistence_path(source, "corpus_index", persistence_format))
+        )
         return pipeline
 
     def _require_fitted(self) -> None:
