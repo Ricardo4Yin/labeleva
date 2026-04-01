@@ -50,6 +50,21 @@ The current package supports:
 - optional answer generation through an injected synchronous generator
 - pipeline save/load with JSON artifacts
 
+## Current Deferred Config Fields
+
+The following public config fields exist today but are still deferred/no-op in
+the current MVP implementation:
+
+- `RetrievalConfig.require_full_label_coverage`
+- `RetrievalConfig.allow_label_free_fallback`
+- `PromptConfig.include_label_annotations`
+
+The current pipeline only actively uses:
+
+- `RetrievalConfig.max_paragraphs`
+- `PromptConfig.include_paragraph_ids`
+- `PromptConfig.max_context_characters`
+
 ## Development Checks
 
 ```bash

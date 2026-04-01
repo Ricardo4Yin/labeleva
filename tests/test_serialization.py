@@ -24,6 +24,7 @@ def test_save_and_load_preserve_build_context_behavior(tmp_path: Path) -> None:
     loaded = RAGPipeline.load(output_dir)
     restored = loaded.build_context("How do developers use language models?")
 
+    assert loaded.fit_result == pipeline.fit_result
     assert restored.query_analysis == original.query_analysis
     assert restored.retrieved_paragraphs == original.retrieved_paragraphs
     assert restored.prompt_context == original.prompt_context
@@ -46,4 +47,5 @@ def test_save_writes_expected_files(tmp_path: Path) -> None:
 
     assert (output_dir / "config.json").is_file()
     assert (output_dir / "label_generator.json").is_file()
+    assert (output_dir / "fit_result.json").is_file()
     assert (output_dir / "corpus_index.json").is_file()

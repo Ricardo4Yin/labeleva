@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from labelgen import LabelGenerationResult, LabelGenerator, Paragraph
+from labelgen import LabelGenerationResult, LabelGenerator, Paragraph, dump_result, load_result
 
 from labelrag.config import RAGPipelineConfig
 from labelrag.generation.generator import AnswerGenerator, GeneratedAnswer
@@ -150,11 +150,13 @@ class RAGPipeline:
 
         self._require_fitted()
         assert self._corpus_index is not None
+        assert self._fit_result is not None
 
         destination = Path(path)
         destination.mkdir(parents=True, exist_ok=True)
         dump_json(pipeline_config_to_dict(self.config), destination / "config.json")
         self._label_generator.save(destination / "label_generator.json")
+        dump_result(self._fit_result, destination / "fit_result.json")
         dump_json(corpus_index_to_dict(self._corpus_index), destination / "corpus_index.json")
 
     @classmethod
@@ -165,14 +167,8 @@ class RAGPipeline:
         config = pipeline_config_from_dict(load_json(source / "config.json"))
         pipeline = cls(config=config)
         pipeline._label_generator = LabelGenerator.load(source / "label_generator.json")
+        pipeline._fit_result = load_result(source / "fit_result.json")
         pipeline._corpus_index = corpus_index_from_dict(load_json(source / "corpus_index.json"))
-        pipeline._fit_result = LabelGenerationResult(
-            paragraphs=[],
-            concepts=[],
-            mentions=[],
-            communities=[],
-            paragraph_labels=[],
-        )
         return pipeline
 
     def _require_fitted(self) -> None:
