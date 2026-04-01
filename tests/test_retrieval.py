@@ -51,6 +51,8 @@ def test_select_greedy_paragraphs_covers_query_labels_greedily() -> None:
 
     assert [paragraph.paragraph_id for paragraph in selected] == ["p3"]
     assert selected[0].marginal_gain == 2
+    assert selected[0].newly_covered_label_ids == ["l1", "l2"]
+    assert selected[0].already_covered_label_ids == []
 
 
 def test_select_greedy_paragraphs_uses_concept_overlap_as_tiebreak() -> None:
@@ -165,3 +167,41 @@ def test_select_greedy_paragraphs_respects_max_paragraphs() -> None:
     selected = select_greedy_paragraphs(query_analysis, corpus_index, max_paragraphs=1)
 
     assert len(selected) == 1
+
+
+def test_select_greedy_paragraphs_tracks_already_covered_labels() -> None:
+    """Later retrieval steps should distinguish newly covered from already covered labels."""
+
+    corpus_index = CorpusIndex(
+        paragraphs_by_id={
+            "p1": IndexedParagraph(
+                paragraph_id="p1",
+                text="Paragraph 1",
+                metadata=None,
+                concept_ids=["c1"],
+                concept_texts=["developers"],
+                label_ids=["l1"],
+                label_display_names=["developers"],
+            ),
+            "p2": IndexedParagraph(
+                paragraph_id="p2",
+                text="Paragraph 2",
+                metadata=None,
+                concept_ids=["c1", "c2"],
+                concept_texts=["developers", "systems"],
+                label_ids=["l1", "l2"],
+                label_display_names=["developers", "systems"],
+            ),
+        }
+    )
+    query_analysis = QueryAnalysis(
+        query_text="How do developers use systems?",
+        concepts=["developers", "systems"],
+        concept_ids=["c1", "c2"],
+        label_ids=["l1", "l2"],
+        label_display_names=["developers", "systems"],
+    )
+
+    selected = select_greedy_paragraphs(query_analysis, corpus_index, max_paragraphs=2)
+
+    assert [paragraph.paragraph_id for paragraph in selected] == ["p2"]

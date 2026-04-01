@@ -14,10 +14,13 @@ def test_build_prompt_context_includes_paragraph_ids_by_default() -> None:
                 paragraph_id="p1",
                 text="Paragraph text.",
                 metadata=None,
+                newly_covered_label_ids=[],
+                already_covered_label_ids=[],
                 matched_label_ids=[],
                 matched_concept_ids=[],
                 paragraph_label_ids=[],
                 paragraph_concept_ids=[],
+                concept_overlap_count=0,
                 marginal_gain=1,
                 retrieval_score=1.0,
             )
@@ -38,10 +41,13 @@ def test_build_prompt_context_respects_character_limit() -> None:
                 paragraph_id="p1",
                 text="abcdefghij",
                 metadata=None,
+                newly_covered_label_ids=[],
+                already_covered_label_ids=[],
                 matched_label_ids=[],
                 matched_concept_ids=[],
                 paragraph_label_ids=[],
                 paragraph_concept_ids=[],
+                concept_overlap_count=0,
                 marginal_gain=1,
                 retrieval_score=1.0,
             )
@@ -51,3 +57,28 @@ def test_build_prompt_context_respects_character_limit() -> None:
 
     assert result == "[Paragra"
 
+
+def test_build_prompt_context_can_include_label_annotations() -> None:
+    """Prompt rendering should optionally include paragraph label annotations."""
+
+    result = build_prompt_context(
+        [
+            RetrievedParagraph(
+                paragraph_id="p1",
+                text="Paragraph text.",
+                metadata=None,
+                newly_covered_label_ids=["l1"],
+                already_covered_label_ids=[],
+                matched_label_ids=["l1"],
+                matched_concept_ids=[],
+                paragraph_label_ids=["l1", "l2"],
+                paragraph_concept_ids=[],
+                concept_overlap_count=0,
+                marginal_gain=1,
+                retrieval_score=1.0,
+            )
+        ],
+        PromptConfig(include_label_annotations=True),
+    )
+
+    assert "Labels: l1, l2" in result

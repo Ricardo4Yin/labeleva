@@ -18,7 +18,10 @@ from labelrag.io.serialize import (
     pipeline_config_from_dict,
     pipeline_config_to_dict,
 )
-from labelrag.retrieval.selector import select_greedy_paragraphs
+from labelrag.retrieval.selector import (
+    select_concept_overlap_fallback,
+    select_greedy_paragraphs,
+)
 from labelrag.types import (
     QueryAnalysis,
     RAGAnswerResult,
@@ -96,6 +99,15 @@ class RAGPipeline:
         self._require_fitted()
         assert self._corpus_index is not None
 
+        if not query_analysis.label_ids:
+            if not self.config.retrieval.allow_label_free_fallback:
+                return []
+            return select_concept_overlap_fallback(
+                query_analysis,
+                self._corpus_index,
+                max_paragraphs=self.config.retrieval.max_paragraphs,
+            )
+
         return select_greedy_paragraphs(
             query_analysis,
             self._corpus_index,
@@ -107,7 +119,6 @@ class RAGPipeline:
 
         query_analysis = self.analyze_query(question)
         retrieved_paragraphs = self._retrieve_paragraphs(query_analysis)
-        prompt_context = build_prompt_context(retrieved_paragraphs, self.config.prompt)
         covered_label_ids = sorted(
             {
                 label_id
@@ -116,6 +127,20 @@ class RAGPipeline:
             }
         )
         uncovered_label_ids = sorted(set(query_analysis.label_ids) - set(covered_label_ids))
+        used_label_free_fallback = (
+            not query_analysis.label_ids and self.config.retrieval.allow_label_free_fallback
+        )
+        full_label_coverage_met = not uncovered_label_ids
+        retrieval_strategy = (
+            "concept_overlap_fallback"
+            if used_label_free_fallback
+            else "greedy_label_coverage"
+        )
+
+        if self.config.retrieval.require_full_label_coverage and not full_label_coverage_met:
+            retrieved_paragraphs = []
+
+        prompt_context = build_prompt_context(retrieved_paragraphs, self.config.prompt)
 
         return RetrievalResult(
             question=question,
@@ -125,9 +150,12 @@ class RAGPipeline:
             metadata={
                 "covered_label_ids": covered_label_ids,
                 "uncovered_label_ids": uncovered_label_ids,
-                "retrieval_strategy": "greedy_label_coverage",
+                "retrieval_strategy": retrieval_strategy,
                 "query_label_ids": list(query_analysis.label_ids),
                 "retrieval_limit": self.config.retrieval.max_paragraphs,
+                "used_label_free_fallback": used_label_free_fallback,
+                "require_full_label_coverage": self.config.retrieval.require_full_label_coverage,
+                "full_label_coverage_met": full_label_coverage_met,
             },
         )
 

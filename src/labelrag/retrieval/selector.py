@@ -49,14 +49,21 @@ def select_greedy_paragraphs(
                 continue
 
             matched_concept_ids = sorted(set(paragraph.concept_ids) & query_concept_ids)
+            newly_covered_label_ids = sorted(paragraph_label_ids & remaining_label_ids)
+            already_covered_label_ids = sorted(
+                (paragraph_label_ids & query_label_ids) - set(newly_covered_label_ids)
+            )
             candidate = RetrievedParagraph(
                 paragraph_id=paragraph.paragraph_id,
                 text=paragraph.text,
                 metadata=paragraph.metadata,
+                newly_covered_label_ids=newly_covered_label_ids,
+                already_covered_label_ids=already_covered_label_ids,
                 matched_label_ids=sorted(paragraph_label_ids & query_label_ids),
                 matched_concept_ids=matched_concept_ids,
                 paragraph_label_ids=list(paragraph.label_ids),
                 paragraph_concept_ids=list(paragraph.concept_ids),
+                concept_overlap_count=len(matched_concept_ids),
                 marginal_gain=gain,
                 retrieval_score=float(gain),
             )
@@ -76,9 +83,51 @@ def select_greedy_paragraphs(
 
         selected.append(best_candidate)
         selected_paragraph_ids.add(best_candidate.paragraph_id)
-        remaining_label_ids -= set(best_candidate.matched_label_ids)
+        remaining_label_ids -= set(best_candidate.newly_covered_label_ids)
 
     return selected
+
+
+def select_concept_overlap_fallback(
+    query_analysis: QueryAnalysis,
+    corpus_index: CorpusIndex,
+    *,
+    max_paragraphs: int,
+) -> list[RetrievedParagraph]:
+    """Select paragraphs deterministically by concept overlap for label-free fallback."""
+
+    query_concept_ids = set(query_analysis.concept_ids)
+    candidates: list[RetrievedParagraph] = []
+    for paragraph in corpus_index.paragraphs_by_id.values():
+        matched_concept_ids = sorted(set(paragraph.concept_ids) & query_concept_ids)
+        if not matched_concept_ids:
+            continue
+        candidates.append(
+            RetrievedParagraph(
+                paragraph_id=paragraph.paragraph_id,
+                text=paragraph.text,
+                metadata=paragraph.metadata,
+                newly_covered_label_ids=[],
+                already_covered_label_ids=[],
+                matched_label_ids=[],
+                matched_concept_ids=matched_concept_ids,
+                paragraph_label_ids=list(paragraph.label_ids),
+                paragraph_concept_ids=list(paragraph.concept_ids),
+                concept_overlap_count=len(matched_concept_ids),
+                marginal_gain=0,
+                retrieval_score=float(len(matched_concept_ids)),
+            )
+        )
+
+    ranked = sorted(
+        candidates,
+        key=lambda item: (
+            -item.concept_overlap_count,
+            -len(item.paragraph_label_ids),
+            item.paragraph_id,
+        ),
+    )
+    return ranked[:max_paragraphs]
 
 
 def _reverse_lexicographic_key(value: str) -> str:

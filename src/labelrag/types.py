@@ -35,10 +35,13 @@ class RetrievedParagraph:
     paragraph_id: str
     text: str
     metadata: dict[str, Any] | None
+    newly_covered_label_ids: list[str]
+    already_covered_label_ids: list[str]
     matched_label_ids: list[str]
     matched_concept_ids: list[str]
     paragraph_label_ids: list[str]
     paragraph_concept_ids: list[str]
+    concept_overlap_count: int
     marginal_gain: int
     retrieval_score: float
 
@@ -64,4 +67,3 @@ class RAGAnswerResult:
     retrieved_paragraphs: list[RetrievedParagraph]
     prompt_context: str
     metadata: dict[str, Any] = field(default_factory=lambda: {})
-

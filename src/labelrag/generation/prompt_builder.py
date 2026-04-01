@@ -16,10 +16,14 @@ def build_prompt_context(
             header = f"[Paragraph {index} | id={paragraph.paragraph_id}]"
         else:
             header = f"[Paragraph {index}]"
-        blocks.append(f"{header}\n{paragraph.text}")
+
+        block_parts = [header]
+        if config.include_label_annotations and paragraph.paragraph_label_ids:
+            block_parts.append(f"Labels: {', '.join(paragraph.paragraph_label_ids)}")
+        block_parts.append(paragraph.text)
+        blocks.append("\n".join(block_parts))
 
     context = "\n\n".join(blocks)
     if config.max_context_characters is not None:
         return context[: config.max_context_characters]
     return context
-

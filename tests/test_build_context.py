@@ -3,6 +3,8 @@
 import pytest
 
 from labelrag import RAGPipeline, RAGPipelineConfig
+from labelrag.indexing.corpus_index import CorpusIndex
+from labelrag.types import QueryAnalysis, RetrievedParagraph
 
 
 def test_build_context_requires_fit() -> None:
@@ -33,6 +35,8 @@ def test_build_context_returns_prompt_and_metadata() -> None:
     assert result.metadata["retrieval_strategy"] == "greedy_label_coverage"
     assert result.metadata["query_label_ids"] == result.query_analysis.label_ids
     assert result.metadata["retrieval_limit"] == pipeline.config.retrieval.max_paragraphs
+    assert result.metadata["used_label_free_fallback"] is False
+    assert result.metadata["full_label_coverage_met"] is True
     assert "covered_label_ids" in result.metadata
     assert "uncovered_label_ids" in result.metadata
     assert result.prompt_context
@@ -61,7 +65,7 @@ def test_build_context_respects_prompt_configuration() -> None:
 
 
 def test_build_context_returns_empty_retrieval_for_label_free_query() -> None:
-    """Queries with no fitted labels should still return a structured empty result."""
+    """Label-free queries should use the configured fallback strategy."""
 
     pipeline = RAGPipeline(RAGPipelineConfig())
     pipeline.fit(
@@ -73,7 +77,77 @@ def test_build_context_returns_empty_retrieval_for_label_free_query() -> None:
 
     result = pipeline.build_context("Quantum batteries improve starship reactors.")
 
-    assert result.retrieved_paragraphs == []
+    assert result.metadata["used_label_free_fallback"] is True
+    assert result.metadata["retrieval_strategy"] == "concept_overlap_fallback"
     assert result.metadata["covered_label_ids"] == []
     assert result.metadata["uncovered_label_ids"] == []
+
+
+def test_build_context_can_disable_label_free_fallback() -> None:
+    """Label-free fallback should be configurable."""
+
+    config = RAGPipelineConfig()
+    config.retrieval.allow_label_free_fallback = False
+    pipeline = RAGPipeline(config)
+    pipeline.fit(
+        [
+            "OpenAI builds language models for developers.",
+            "Developers use language models in production systems.",
+        ]
+    )
+
+    result = pipeline.build_context("Quantum batteries improve starship reactors.")
+
+    assert result.retrieved_paragraphs == []
     assert result.prompt_context == ""
+    assert result.metadata["used_label_free_fallback"] is False
+    assert result.metadata["retrieval_strategy"] == "greedy_label_coverage"
+
+
+def test_build_context_can_require_full_label_coverage() -> None:
+    """Requiring full label coverage should suppress partial retrieval results."""
+
+    class StubPipeline(RAGPipeline):
+        def __init__(self, config: RAGPipelineConfig) -> None:
+            super().__init__(config)
+            self._corpus_index = CorpusIndex()
+
+        def analyze_query(self, question: str) -> QueryAnalysis:
+            del question
+            return QueryAnalysis(
+                query_text="stub question",
+                concepts=["developers", "monitoring"],
+                concept_ids=["c1", "c2"],
+                label_ids=["l1", "l2"],
+                label_display_names=["developers", "monitoring"],
+            )
+
+        def _retrieve_paragraphs(self, query_analysis: QueryAnalysis) -> list[RetrievedParagraph]:
+            del query_analysis
+            return [
+                RetrievedParagraph(
+                    paragraph_id="p1",
+                    text="Paragraph 1",
+                    metadata=None,
+                    newly_covered_label_ids=["l1"],
+                    already_covered_label_ids=[],
+                    matched_label_ids=["l1"],
+                    matched_concept_ids=["c1"],
+                    paragraph_label_ids=["l1"],
+                    paragraph_concept_ids=["c1"],
+                    concept_overlap_count=1,
+                    marginal_gain=1,
+                    retrieval_score=1.0,
+                )
+            ]
+
+    config = RAGPipelineConfig()
+    config.retrieval.require_full_label_coverage = True
+    pipeline = StubPipeline(config)
+
+    result = pipeline.build_context("How do developers use language models and monitoring?")
+
+    assert result.retrieved_paragraphs == []
+    assert result.prompt_context == ""
+    assert result.metadata["require_full_label_coverage"] is True
+    assert result.metadata["full_label_coverage_met"] is False
