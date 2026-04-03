@@ -1,5 +1,6 @@
 """Tests for pipeline save/load behavior."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,9 +65,20 @@ def test_save_writes_expected_files(tmp_path: Path) -> None:
     pipeline.save(output_dir)
 
     assert (output_dir / "config.json").is_file()
+    assert (output_dir / "manifest.json").is_file()
     assert (output_dir / "label_generator.json").is_file()
     assert (output_dir / "fit_result.json").is_file()
     assert (output_dir / "corpus_index.json").is_file()
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["persistence_format"] == "json"
+    assert manifest["artifacts"] == [
+        "config.json",
+        "label_generator.json",
+        "fit_result.json",
+        "corpus_index.json",
+        "manifest.json",
+    ]
 
 
 def test_save_and_load_support_json_gz_round_trip(tmp_path: Path) -> None:
@@ -86,6 +98,7 @@ def test_save_and_load_support_json_gz_round_trip(tmp_path: Path) -> None:
     pipeline.save(output_dir, format="json.gz")
 
     assert (output_dir / "config.json.gz").is_file()
+    assert (output_dir / "manifest.json.gz").is_file()
     assert (output_dir / "label_generator.json.gz").is_file()
     assert (output_dir / "fit_result.json.gz").is_file()
     assert (output_dir / "corpus_index.json.gz").is_file()
@@ -114,6 +127,7 @@ def test_save_reuses_detected_existing_persistence_format(tmp_path: Path) -> Non
     pipeline.save(output_dir, format="json.gz")
     pipeline.save(output_dir)
 
+    assert (output_dir / "manifest.json.gz").is_file()
     assert (output_dir / "config.json.gz").is_file()
     assert not (output_dir / "config.json").exists()
 
@@ -211,6 +225,7 @@ def test_failed_format_migration_restores_previous_snapshot(
     monkeypatch.setattr(rag_pipeline_module, "dump_result", original_dump_result)
 
     assert (output_dir / "config.json.gz").is_file()
+    assert (output_dir / "manifest.json.gz").is_file()
     assert (output_dir / "label_generator.json.gz").is_file()
     assert (output_dir / "fit_result.json.gz").is_file()
     assert (output_dir / "corpus_index.json.gz").is_file()
@@ -219,6 +234,65 @@ def test_failed_format_migration_restores_previous_snapshot(
     loaded = RAGPipeline.load(output_dir, format="json.gz")
     result = loaded.build_context("How do developers use language models?")
     assert result.prompt_context
+
+
+def test_load_supports_legacy_snapshot_without_manifest(tmp_path: Path) -> None:
+    """Loading should remain backward compatible with snapshots that predate manifests."""
+
+    pipeline = RAGPipeline(RAGPipelineConfig())
+    pipeline.fit(
+        [
+            "OpenAI builds language models for developers.",
+            "Developers use language models in production systems.",
+            "Production systems need monitoring and evaluation tooling.",
+        ]
+    )
+
+    output_dir = tmp_path / "pipeline"
+    pipeline.save(output_dir)
+    (output_dir / "manifest.json").unlink()
+
+    loaded = RAGPipeline.load(output_dir)
+    result = loaded.build_context("How do developers use language models?")
+
+    assert result.prompt_context
+    assert loaded.fit_result == pipeline.fit_result
+
+
+def test_load_rebuilds_legacy_concept_reverse_lookups(tmp_path: Path) -> None:
+    """Legacy snapshots should rebuild derived concept inspection state on load."""
+
+    pipeline = RAGPipeline(RAGPipelineConfig())
+    pipeline.fit(
+        [
+            "OpenAI builds language models for developers.",
+            "Developers use language models in production systems.",
+            "Production systems need monitoring and evaluation tooling.",
+        ]
+    )
+    assert pipeline.corpus_index is not None
+
+    output_dir = tmp_path / "pipeline"
+    pipeline.save(output_dir)
+
+    corpus_index_path = output_dir / "corpus_index.json"
+    corpus_index_data = json.loads(corpus_index_path.read_text(encoding="utf-8"))
+    corpus_index_data.pop("paragraph_ids_by_concept", None)
+    corpus_index_data.pop("concept_texts_by_id", None)
+    corpus_index_path.write_text(json.dumps(corpus_index_data, indent=2), encoding="utf-8")
+    (output_dir / "manifest.json").unlink()
+
+    loaded = RAGPipeline.load(output_dir)
+    paragraph_id = sorted(pipeline.corpus_index.paragraphs_by_id)[0]
+    paragraph = pipeline.get_paragraph(paragraph_id)
+    assert paragraph is not None
+
+    concept_id = paragraph.concept_ids[0]
+    assert loaded.get_concept_paragraph_ids(concept_id) == pipeline.get_concept_paragraph_ids(
+        concept_id
+    )
+    assert loaded.corpus_index is not None
+    assert loaded.corpus_index.concept_texts_by_id[concept_id] in paragraph.concept_texts
 
 
 def test_load_supports_answer_with_generator(tmp_path: Path) -> None:

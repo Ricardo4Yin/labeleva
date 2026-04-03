@@ -18,7 +18,8 @@ from labelrag.indexing.corpus_index import CorpusIndex
 from labelrag.types import IndexedParagraph
 
 PersistenceFormat = Literal["json", "json.gz"]
-_ARTIFACT_STEMS = ("config", "label_generator", "fit_result", "corpus_index")
+_ARTIFACT_STEMS = ("manifest", "config", "label_generator", "fit_result", "corpus_index")
+_CORE_ARTIFACT_STEMS = ("config", "label_generator", "fit_result", "corpus_index")
 _T = TypeVar("_T")
 
 
@@ -115,8 +116,8 @@ def resolve_persistence_format(
         return _normalize_persistence_format(format)
 
     source = Path(root)
-    json_paths = [persistence_path(source, stem, "json") for stem in _ARTIFACT_STEMS]
-    gzip_paths = [persistence_path(source, stem, "json.gz") for stem in _ARTIFACT_STEMS]
+    json_paths = [persistence_path(source, stem, "json") for stem in _CORE_ARTIFACT_STEMS]
+    gzip_paths = [persistence_path(source, stem, "json.gz") for stem in _CORE_ARTIFACT_STEMS]
 
     json_exists = [path.exists() for path in json_paths]
     gzip_exists = [path.exists() for path in gzip_paths]
@@ -191,19 +192,74 @@ def cleanup_persistence_backups(backups: list[tuple[Path, Path]]) -> None:
 def ensure_persistence_artifacts_exist(
     root: str | Path,
     format: PersistenceFormat,
+    *,
+    include_manifest: bool = True,
 ) -> None:
     """Validate that all required artifacts exist for the chosen format."""
 
     source = Path(root)
+    stems = _ARTIFACT_STEMS if include_manifest else _CORE_ARTIFACT_STEMS
     missing_paths = [
         str(path.name)
-        for stem in _ARTIFACT_STEMS
+        for stem in stems
         if not (path := persistence_path(source, stem, format)).is_file()
     ]
     if missing_paths:
         missing = ", ".join(missing_paths)
         raise RuntimeError(
             f"Missing persistence artifacts for format `{format}`: {missing}."
+        )
+
+
+def has_manifest(root: str | Path, format: PersistenceFormat) -> bool:
+    """Return whether a persistence snapshot includes a manifest artifact."""
+
+    return persistence_path(root, "manifest", format).is_file()
+
+
+def manifest_to_dict(
+    *,
+    labelrag_version: str,
+    persistence_format: PersistenceFormat,
+    artifacts: list[str],
+) -> dict[str, Any]:
+    """Build a lightweight persistence manifest payload."""
+
+    return {
+        "labelrag_version": labelrag_version,
+        "persistence_format": persistence_format,
+        "artifacts": list(artifacts),
+    }
+
+
+def validate_manifest(
+    data: dict[str, Any],
+    *,
+    format: PersistenceFormat,
+) -> None:
+    """Validate the minimal shape of a persisted manifest."""
+
+    persisted_format = _as_string(data.get("persistence_format"))
+    if persisted_format != format:
+        raise RuntimeError(
+            "Persistence manifest format does not match the requested snapshot format."
+        )
+
+    artifact_names = _as_string_list(data.get("artifacts"))
+    expected_artifacts = [
+        persistence_path(".", stem, format).name
+        for stem in _ARTIFACT_STEMS
+    ]
+    missing_artifacts = [
+        artifact_name
+        for artifact_name in expected_artifacts
+        if artifact_name not in artifact_names
+    ]
+    if missing_artifacts:
+        missing = ", ".join(missing_artifacts)
+        raise RuntimeError(
+            "Persistence manifest is missing required artifact entries: "
+            f"{missing}."
         )
 
 
@@ -262,7 +318,9 @@ def corpus_index_to_dict(index: CorpusIndex) -> dict[str, Any]:
         "paragraph_ids_by_label": index.paragraph_ids_by_label,
         "label_ids_by_paragraph": index.label_ids_by_paragraph,
         "concept_ids_by_paragraph": index.concept_ids_by_paragraph,
+        "paragraph_ids_by_concept": index.paragraph_ids_by_concept,
         "label_display_names_by_id": index.label_display_names_by_id,
+        "concept_texts_by_id": index.concept_texts_by_id,
     }
 
 
@@ -270,11 +328,37 @@ def corpus_index_from_dict(data: dict[str, Any]) -> CorpusIndex:
     """Reconstruct a corpus index from serialized data."""
 
     paragraphs_by_id_data = _as_string_key_dict(data.get("paragraphs_by_id"))
+    paragraphs_by_id = {
+        paragraph_id: IndexedParagraph(**_as_string_key_dict(paragraph_data))
+        for paragraph_id, paragraph_data in paragraphs_by_id_data.items()
+    }
+    concept_ids_by_paragraph = {
+        paragraph_id: _as_string_list(value)
+        for paragraph_id, value in _as_string_key_dict(
+            data.get("concept_ids_by_paragraph")
+        ).items()
+    }
+    paragraph_ids_by_concept_data = _as_string_key_dict(
+        data.get("paragraph_ids_by_concept", {})
+    )
+    concept_texts_by_id_data = _as_string_key_dict(data.get("concept_texts_by_id", {}))
+
+    paragraph_ids_by_concept = {
+        concept_id: _as_string_list(value)
+        for concept_id, value in paragraph_ids_by_concept_data.items()
+    }
+    if not paragraph_ids_by_concept:
+        paragraph_ids_by_concept = _rebuild_paragraph_ids_by_concept(concept_ids_by_paragraph)
+
+    concept_texts_by_id = {
+        concept_id: _as_string(value)
+        for concept_id, value in concept_texts_by_id_data.items()
+    }
+    if not concept_texts_by_id:
+        concept_texts_by_id = _rebuild_concept_texts_by_id(paragraphs_by_id)
+
     return CorpusIndex(
-        paragraphs_by_id={
-            paragraph_id: IndexedParagraph(**_as_string_key_dict(paragraph_data))
-            for paragraph_id, paragraph_data in paragraphs_by_id_data.items()
-        },
+        paragraphs_by_id=paragraphs_by_id,
         paragraph_ids_by_label={
             label_id: _as_string_list(value)
             for label_id, value in _as_string_key_dict(data.get("paragraph_ids_by_label")).items()
@@ -285,19 +369,47 @@ def corpus_index_from_dict(data: dict[str, Any]) -> CorpusIndex:
                 data.get("label_ids_by_paragraph")
             ).items()
         },
-        concept_ids_by_paragraph={
-            paragraph_id: _as_string_list(value)
-            for paragraph_id, value in _as_string_key_dict(
-                data.get("concept_ids_by_paragraph")
-            ).items()
-        },
+        concept_ids_by_paragraph=concept_ids_by_paragraph,
+        paragraph_ids_by_concept=paragraph_ids_by_concept,
         label_display_names_by_id={
             label_id: _as_string(value)
             for label_id, value in _as_string_key_dict(
                 data.get("label_display_names_by_id")
             ).items()
         },
+        concept_texts_by_id=concept_texts_by_id,
     )
+
+
+def _rebuild_paragraph_ids_by_concept(
+    concept_ids_by_paragraph: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Rebuild concept reverse lookups from paragraph-side concept assignments."""
+
+    paragraph_ids_by_concept: dict[str, list[str]] = {}
+    for paragraph_id, concept_ids in concept_ids_by_paragraph.items():
+        for concept_id in concept_ids:
+            paragraph_ids_by_concept.setdefault(concept_id, []).append(paragraph_id)
+
+    for concept_id in paragraph_ids_by_concept:
+        paragraph_ids_by_concept[concept_id].sort()
+    return paragraph_ids_by_concept
+
+
+def _rebuild_concept_texts_by_id(
+    paragraphs_by_id: dict[str, IndexedParagraph],
+) -> dict[str, str]:
+    """Rebuild concept text mappings from indexed paragraph records."""
+
+    concept_texts_by_id: dict[str, str] = {}
+    for paragraph in paragraphs_by_id.values():
+        for concept_id, concept_text in zip(
+            paragraph.concept_ids,
+            paragraph.concept_texts,
+            strict=False,
+        ):
+            concept_texts_by_id.setdefault(concept_id, concept_text)
+    return concept_texts_by_id
 
 
 def _as_string_list(value: object) -> list[str]:
