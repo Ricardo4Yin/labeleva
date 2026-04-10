@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
@@ -38,7 +39,9 @@ from labelrag.retrieval.selector import (
     select_greedy_paragraphs,
 )
 from labelrag.types import (
+    ConceptRecord,
     IndexedParagraph,
+    LabelRecord,
     QueryAnalysis,
     RAGAnswerResult,
     RetrievalResult,
@@ -105,6 +108,20 @@ class RAGPipeline:
             if paragraph_id in self._corpus_index.paragraphs_by_id
         ]
 
+    def get_label(self, label_id: str) -> LabelRecord | None:
+        """Return one label inspection record by ID when it exists."""
+
+        self._require_fitted()
+        assert self._corpus_index is not None
+        if label_id not in self._corpus_index.label_display_names_by_id:
+            return None
+        return LabelRecord(
+            label_id=label_id,
+            display_name=self._corpus_index.label_display_names_by_id[label_id],
+            concept_ids=list(self._corpus_index.label_concept_ids_by_id.get(label_id, [])),
+            paragraph_ids=list(self._corpus_index.paragraph_ids_by_label.get(label_id, [])),
+        )
+
     def get_paragraph_label_ids(self, paragraph_id: str) -> list[str]:
         """Return label IDs associated with one paragraph."""
 
@@ -119,12 +136,43 @@ class RAGPipeline:
         assert self._corpus_index is not None
         return list(self._corpus_index.concept_ids_by_paragraph.get(paragraph_id, []))
 
+    def get_paragraph_labels(self, paragraph_id: str) -> list[LabelRecord]:
+        """Return label inspection records associated with one paragraph."""
+
+        self._require_fitted()
+        return [
+            label
+            for label_id in self.get_paragraph_label_ids(paragraph_id)
+            if (label := self.get_label(label_id)) is not None
+        ]
+
+    def get_paragraph_concepts(self, paragraph_id: str) -> list[ConceptRecord]:
+        """Return concept inspection records associated with one paragraph."""
+
+        self._require_fitted()
+        return [
+            concept
+            for concept_id in self.get_paragraph_concept_ids(paragraph_id)
+            if (concept := self._get_concept_record(concept_id)) is not None
+        ]
+
     def get_concept_paragraph_ids(self, concept_id: str) -> list[str]:
         """Return paragraph IDs associated with one concept."""
 
         self._require_fitted()
         assert self._corpus_index is not None
         return list(self._corpus_index.paragraph_ids_by_concept.get(concept_id, []))
+
+    def get_concept_paragraphs(self, concept_id: str) -> list[IndexedParagraph]:
+        """Return paragraph records associated with one concept."""
+
+        self._require_fitted()
+        assert self._corpus_index is not None
+        return [
+            self._corpus_index.paragraphs_by_id[paragraph_id]
+            for paragraph_id in self.get_concept_paragraph_ids(concept_id)
+            if paragraph_id in self._corpus_index.paragraphs_by_id
+        ]
 
     def analyze_query(self, question: str) -> QueryAnalysis:
         """Analyze a query against the fitted label space."""
@@ -335,7 +383,8 @@ class RAGPipeline:
             load_result,
         )
         pipeline._corpus_index = corpus_index_from_dict(
-            load_json(persistence_path(source, "corpus_index", persistence_format))
+            load_json(persistence_path(source, "corpus_index", persistence_format)),
+            pipeline._fit_result,
         )
         return pipeline
 
@@ -385,6 +434,18 @@ class RAGPipeline:
             return GeneratedAnswer(text="", metadata={})
         return generator.generate(question, context)
 
+    def _get_concept_record(self, concept_id: str) -> ConceptRecord | None:
+        """Return one concept inspection record by ID when it exists."""
+
+        assert self._corpus_index is not None
+        if concept_id not in self._corpus_index.concept_texts_by_id:
+            return None
+        return ConceptRecord(
+            concept_id=concept_id,
+            text=self._corpus_index.concept_texts_by_id[concept_id],
+            paragraph_ids=list(self._corpus_index.paragraph_ids_by_concept.get(concept_id, [])),
+        )
+
 
 def _generator_name(generator: AnswerGenerator | None) -> str:
     """Return a stable generator identifier for metadata."""
@@ -408,5 +469,14 @@ def _package_version() -> str:
 
     try:
         return package_version("labelrag")
-    except PackageNotFoundError:
-        return ""
+    except PackageNotFoundError as err:
+        pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
+        if pyproject_path.is_file():
+            with pyproject_path.open("rb") as handle:
+                project_table = tomllib.load(handle).get("project", {})
+            version = project_table.get("version")
+            if isinstance(version, str) and version:
+                return version
+        raise RuntimeError(
+            "Unable to determine labelrag version for persistence manifest."
+        ) from err

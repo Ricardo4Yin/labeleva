@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from io import BufferedReader
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,8 @@ def test_save_writes_expected_files(tmp_path: Path) -> None:
     assert (output_dir / "corpus_index.json").is_file()
 
     manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert isinstance(manifest["labelrag_version"], str)
+    assert manifest["labelrag_version"]
     assert manifest["persistence_format"] == "json"
     assert manifest["artifacts"] == [
         "config.json",
@@ -293,6 +296,114 @@ def test_load_rebuilds_legacy_concept_reverse_lookups(tmp_path: Path) -> None:
     )
     assert loaded.corpus_index is not None
     assert loaded.corpus_index.concept_texts_by_id[concept_id] in paragraph.concept_texts
+
+
+def test_load_rejects_manifest_without_labelrag_version(tmp_path: Path) -> None:
+    """Loading should fail when the manifest omits the required package version field."""
+
+    pipeline = RAGPipeline(RAGPipelineConfig())
+    pipeline.fit(
+        [
+            "OpenAI builds language models for developers.",
+            "Developers use language models in production systems.",
+        ]
+    )
+
+    output_dir = tmp_path / "pipeline"
+    pipeline.save(output_dir)
+
+    manifest_path = output_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("labelrag_version", None)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="labelrag_version"):
+        RAGPipeline.load(output_dir)
+
+
+def test_save_uses_pyproject_version_when_package_metadata_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Saving should still write a non-empty version when package metadata is unavailable."""
+
+    pipeline = RAGPipeline(RAGPipelineConfig())
+    pipeline.fit(
+        [
+            "OpenAI builds language models for developers.",
+            "Developers use language models in production systems.",
+        ]
+    )
+
+    def raise_package_not_found(_: str) -> str:
+        raise rag_pipeline_module.PackageNotFoundError
+
+    monkeypatch.setattr(rag_pipeline_module, "package_version", raise_package_not_found)
+
+    output_dir = tmp_path / "pipeline"
+    pipeline.save(output_dir)
+
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["labelrag_version"] == "0.0.2"
+
+
+def test_save_fails_when_no_manifest_version_source_is_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Saving should fail clearly when no manifest version source can be resolved."""
+
+    pipeline = RAGPipeline(RAGPipelineConfig())
+    pipeline.fit(
+        [
+            "OpenAI builds language models for developers.",
+            "Developers use language models in production systems.",
+        ]
+    )
+
+    def raise_package_not_found(_: str) -> str:
+        raise rag_pipeline_module.PackageNotFoundError
+
+    def load_project_without_version(_: BufferedReader) -> dict[str, dict[str, object]]:
+        return {"project": {}}
+
+    monkeypatch.setattr(rag_pipeline_module, "package_version", raise_package_not_found)
+    monkeypatch.setattr(rag_pipeline_module.tomllib, "load", load_project_without_version)
+
+    output_dir = tmp_path / "pipeline"
+    with pytest.raises(RuntimeError, match="Unable to determine labelrag version"):
+        pipeline.save(output_dir)
+
+
+def test_load_rebuilds_legacy_label_concept_ids(tmp_path: Path) -> None:
+    """Legacy snapshots should rebuild label concept IDs for record-oriented inspection."""
+
+    pipeline = RAGPipeline(RAGPipelineConfig())
+    pipeline.fit(
+        [
+            "OpenAI builds language models for developers.",
+            "Developers use language models in production systems.",
+            "Production systems need monitoring and evaluation tooling.",
+        ]
+    )
+    assert pipeline.corpus_index is not None
+
+    output_dir = tmp_path / "pipeline"
+    pipeline.save(output_dir)
+
+    corpus_index_path = output_dir / "corpus_index.json"
+    corpus_index_data = json.loads(corpus_index_path.read_text(encoding="utf-8"))
+    corpus_index_data.pop("label_concept_ids_by_id", None)
+    corpus_index_path.write_text(json.dumps(corpus_index_data, indent=2), encoding="utf-8")
+    (output_dir / "manifest.json").unlink()
+
+    loaded = RAGPipeline.load(output_dir)
+    paragraph_id = sorted(pipeline.corpus_index.paragraphs_by_id)[0]
+    paragraph = pipeline.get_paragraph(paragraph_id)
+    assert paragraph is not None
+    label_id = paragraph.label_ids[0]
+
+    assert loaded.get_label(label_id) == pipeline.get_label(label_id)
 
 
 def test_load_supports_answer_with_generator(tmp_path: Path) -> None:
