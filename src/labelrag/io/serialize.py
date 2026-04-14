@@ -14,13 +14,14 @@ from typing import Any, Literal, TypeVar, cast
 from labelgen import LabelGenerationResult
 from labelgen.io.serialize import config_from_dict, config_to_dict
 
-from labelrag.config import PromptConfig, RAGPipelineConfig, RetrievalConfig
+from labelrag.config import EmbeddingConfig, PromptConfig, RAGPipelineConfig, RetrievalConfig
 from labelrag.indexing.corpus_index import CorpusIndex
 from labelrag.types import IndexedParagraph
 
 PersistenceFormat = Literal["json", "json.gz"]
 _ARTIFACT_STEMS = ("manifest", "config", "label_generator", "fit_result", "corpus_index")
 _CORE_ARTIFACT_STEMS = ("config", "label_generator", "fit_result", "corpus_index")
+_EXTRA_ARTIFACTS = ("paragraph_embeddings.npz",)
 _T = TypeVar("_T")
 
 
@@ -195,6 +196,7 @@ def ensure_persistence_artifacts_exist(
     format: PersistenceFormat,
     *,
     include_manifest: bool = True,
+    include_embedding_artifact: bool = True,
 ) -> None:
     """Validate that all required artifacts exist for the chosen format."""
 
@@ -205,6 +207,12 @@ def ensure_persistence_artifacts_exist(
         for stem in stems
         if not (path := persistence_path(source, stem, format)).is_file()
     ]
+    if include_embedding_artifact:
+        missing_paths.extend(
+            artifact_name
+            for artifact_name in _EXTRA_ARTIFACTS
+            if not (source / artifact_name).is_file()
+        )
     if missing_paths:
         missing = ", ".join(missing_paths)
         raise RuntimeError(
@@ -258,6 +266,8 @@ def validate_manifest(
         persistence_path(".", stem, format).name
         for stem in _ARTIFACT_STEMS
     ]
+    if _manifest_requires_embedding_artifact(data):
+        expected_artifacts.extend(_EXTRA_ARTIFACTS)
     missing_artifacts = [
         artifact_name
         for artifact_name in expected_artifacts
@@ -279,6 +289,31 @@ def _normalize_persistence_format(value: str) -> PersistenceFormat:
     return cast(PersistenceFormat, value)
 
 
+def _manifest_requires_embedding_artifact(data: dict[str, Any]) -> bool:
+    """Return whether a manifest should include the embedding artifact entry."""
+
+    version = data.get("labelrag_version")
+    if not isinstance(version, str):
+        return False
+    parsed = _parse_semver_prefix(version)
+    if parsed is None:
+        return False
+    return parsed >= (0, 1, 0)
+
+
+def _parse_semver_prefix(version: str) -> tuple[int, int, int] | None:
+    """Parse a best-effort `major.minor.patch` tuple from a version string."""
+
+    core = version.split("-", maxsplit=1)[0]
+    parts = core.split(".")
+    if len(parts) < 3:
+        return None
+    try:
+        return (int(parts[0]), int(parts[1]), int(parts[2]))
+    except ValueError:
+        return None
+
+
 def _as_string_key_dict(value: object) -> dict[str, Any]:
     """Normalize a mapping into a string-key dictionary."""
 
@@ -298,6 +333,7 @@ def pipeline_config_to_dict(config: RAGPipelineConfig) -> dict[str, Any]:
 
     return {
         "labelgen": config_to_dict(config.labelgen),
+        "embedding": asdict(config.embedding),
         "retrieval": asdict(config.retrieval),
         "prompt": asdict(config.prompt),
     }
@@ -306,10 +342,17 @@ def pipeline_config_to_dict(config: RAGPipelineConfig) -> dict[str, Any]:
 def pipeline_config_from_dict(data: dict[str, Any]) -> RAGPipelineConfig:
     """Reconstruct a pipeline config from serialized data."""
 
+    embedding_value = data.get("embedding")
+    embedding_data = (
+        _as_string_key_dict(embedding_value)
+        if embedding_value is not None
+        else asdict(EmbeddingConfig())
+    )
     retrieval_data = _as_string_key_dict(data.get("retrieval"))
     prompt_data = _as_string_key_dict(data.get("prompt"))
     return RAGPipelineConfig(
         labelgen=config_from_dict(_as_string_key_dict(data.get("labelgen"))),
+        embedding=EmbeddingConfig(**embedding_data),
         retrieval=RetrievalConfig(**retrieval_data),
         prompt=PromptConfig(**prompt_data),
     )
