@@ -94,7 +94,7 @@ class DataLoader:
 
         for doc_id, doc_data in data.items(): # type: ignore
             if not isinstance(doc_data, dict):
-                continue  # Skip invalid entries
+                continue
 
             # Extract text from TechQA document structure
             # TechQA format: {"id": "...", "text": "...", "title": "...", "metadata": {...}}
