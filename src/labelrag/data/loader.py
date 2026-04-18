@@ -98,7 +98,7 @@ class DataLoader:
 
             # Extract text from TechQA document structure
             # TechQA format: {"id": "...", "text": "...", "title": "...", "metadata": {...}}
-            text = doc_data.get("text")
+            text = doc_data.get("text") # type: ignore
             if not isinstance(text, str) or not text.strip():
                 continue  # Skip documents without text
 
