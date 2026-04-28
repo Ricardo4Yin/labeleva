@@ -5,6 +5,13 @@ from labelgen import Paragraph
 from labelrag.config import EmbeddingConfig, PromptConfig, RAGPipelineConfig, RetrievalConfig
 from labelrag.embedding.provider import EmbeddingProvider
 from labelrag.embedding.sentence_transformer import SentenceTransformerEmbeddingProvider
+from labelrag.evaluation.evaluator import (
+    DefaultRetrievalEvaluator,
+    EvalConfig,
+    RetrievalEvaluator,
+)
+from labelrag.evaluation.metrics import RetrievalMetrics
+from labelrag.evaluation.reporter import format_report
 from labelrag.generation.generator import AnswerGenerator, GeneratedAnswer
 from labelrag.generation.openai_compatible import (
     OpenAICompatibleAnswerGenerator,
@@ -23,9 +30,12 @@ from labelrag.types import (
 
 __all__ = [
     "AnswerGenerator",
+    "DefaultRetrievalEvaluator",
     "EmbeddingConfig",
     "EmbeddingProvider",
     "ConceptRecord",
+    "EvalConfig",
+    "format_report",
     "GeneratedAnswer",
     "IndexedParagraph",
     "LabelRecord",
@@ -38,6 +48,8 @@ __all__ = [
     "RAGPipeline",
     "RAGPipelineConfig",
     "RetrievalConfig",
+    "RetrievalEvaluator",
+    "RetrievalMetrics",
     "RetrievalResult",
     "RetrievedParagraph",
     "SentenceTransformerEmbeddingProvider",
